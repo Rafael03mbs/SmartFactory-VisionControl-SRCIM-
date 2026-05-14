@@ -115,6 +115,18 @@ public class SimResourceLibrary implements IResource {
             return null; // Skill execution failed (timeout)
         }
 
+        // Workaround: Wait for the physical robot arm to fully retract in CoppeliaSim
+        // before telling the Product Agent the skill is done. This prevents the AGV
+        // from pulling the tray while the arm is still returning to its home position.
+        if (skillID.startsWith("sk_g_")) {
+            try {
+                System.out.println("[SimResourceLibrary] " + myAgent.getLocalName() + " finished gluing, waiting for arm to retract...");
+                Thread.sleep(2000); 
+            } catch (InterruptedException ex) {
+                Logger.getLogger(SimResourceLibrary.class.getName()).log(Level.SEVERE, null, ex);
+            }
+        }
+
         // Step 2: For Quality Check, call the AI Inspection API
         if (skillID.equals(Utilities.Constants.SK_QUALITY_CHECK)) {
             return callInspectionAPI();

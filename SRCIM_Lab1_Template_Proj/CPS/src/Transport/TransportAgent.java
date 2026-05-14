@@ -72,15 +72,15 @@ public class TransportAgent extends Agent {
                 String destination = st.nextToken();
                 String productID = request.getSender().getLocalName();
 
-                System.out
-                        .println(id + " received move request for " + productID + ": " + origin + " -> " + destination);
+                // System.out
+                //         .println(id + " received move request for " + productID + ": " + origin + " -> " + destination);
                 boolean success = myLib.executeMove(origin, destination, productID);
 
                 ACLMessage reply = request.createReply();
                 if (success) {
                     reply.setPerformative(ACLMessage.INFORM);
                     reply.setContent("moved");
-                    System.out.println(id + " completed move for " + productID + ": " + origin + " -> " + destination);
+                    // System.out.println(id + " completed move for " + productID + ": " + origin + " -> " + destination);
                 } else {
                     reply.setPerformative(ACLMessage.FAILURE);
                     reply.setContent("Move failed");

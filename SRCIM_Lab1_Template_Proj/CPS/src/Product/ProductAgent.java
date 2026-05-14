@@ -168,7 +168,7 @@ public class ProductAgent extends Agent {
             release.setOntology(Constants.ONTOLOGY_RELEASE_RESOURCE);
             release.addReceiver(occupiedResourceAID);
             send(release);
-            System.out.println(id + " released " + occupiedResourceAID.getLocalName());
+            // System.out.println(id + " released " + occupiedResourceAID.getLocalName());
             occupiedResourceAID = null;
         }
     }
@@ -205,8 +205,8 @@ public class ProductAgent extends Agent {
                 @Override
                 public void action() {
                     negotiationRetries++;
-                    System.out.println(id + " [Step " + stepNum + "/" + totalSteps + "] Processing skill: " + skill
-                            + (negotiationRetries > 1 ? " (retry #" + negotiationRetries + ")" : ""));
+                    // System.out.println(id + " [Step " + stepNum + "/" + totalSteps + "] Processing skill: " + skill
+                    //         + (negotiationRetries > 1 ? " (retry #" + negotiationRetries + ")" : ""));
                     try {
                         DFAgentDescription[] currentRes = DFInteraction.SearchInDFByName(skill, myAgent);
                         
@@ -231,7 +231,7 @@ public class ProductAgent extends Agent {
                                 return;
                             }
                         } else if (negotiationRetries > LOOKAHEAD_RETRY_LIMIT) {
-                            System.out.println(id + " LOOKAHEAD DISABLED for " + skill + " — negotiating with ALL resources");
+                            // System.out.println(id + " LOOKAHEAD DISABLED for " + skill + " — negotiating with ALL resources");
                         }
                         
                         availableResources = currentRes;
@@ -295,8 +295,8 @@ public class ProductAgent extends Agent {
                                 ACLMessage reply = response.createReply();
                                 if (response.getSender().equals(bestProposal.getSender())) {
                                     reply.setPerformative(ACLMessage.ACCEPT_PROPOSAL);
-                                    System.out.println(id + " accepted proposal from "
-                                            + response.getSender().getLocalName() + " (metric " + bestMetric + ")");
+                                    // System.out.println(id + " accepted proposal from "
+                                    //         + response.getSender().getLocalName() + " (metric " + bestMetric + ")");
                                 } else {
                                     reply.setPerformative(ACLMessage.REJECT_PROPOSAL);
                                 }
@@ -305,7 +305,7 @@ public class ProductAgent extends Agent {
                         }
                     } else {
                         // ── ALL resources refused ── wait and retry
-                        System.out.println(id + " ALL stations busy for skill " + skill + " — will retry in 1s.");
+                        // System.out.println(id + " ALL stations busy for skill " + skill + " — will retry in 1s.");
                         try {
                             Thread.sleep(1000);
                         } catch (InterruptedException ex) {
@@ -388,8 +388,8 @@ public class ProductAgent extends Agent {
                     lastExecutionResult = inform.getContent();
                     // Skill done — we are now physically on this station
                     occupiedResourceAID = chosenResourceAID;
-                    System.out.println(id + " skill " + skill + " completed. Result: "
-                            + lastExecutionResult + " | Occupying " + chosenResourceAID.getLocalName());
+                    // System.out.println(id + " skill " + skill + " completed. Result: "
+                    //         + lastExecutionResult + " | Occupying " + chosenResourceAID.getLocalName());
                 }
             };
 

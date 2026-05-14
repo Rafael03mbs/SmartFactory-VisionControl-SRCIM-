@@ -91,8 +91,8 @@ public class ResourceAgent extends Agent {
 
                 // GUARD: refuse if occupied by a DIFFERENT product
                 if (occupied && !requester.equals(occupiedBy)) {
-                    System.out.println(id + " is OCCUPIED by " + occupiedBy
-                            + " — refusing CFP from " + requester + " for " + cfp.getContent());
+                    // System.out.println(id + " is OCCUPIED by " + occupiedBy
+                    //         + " — refusing CFP from " + requester + " for " + cfp.getContent());
                     throw new RefuseException("Station " + id + " is occupied by " + occupiedBy);
                 }
 
@@ -102,8 +102,8 @@ public class ResourceAgent extends Agent {
                 Random rand = new Random();
                 int metric = queueSize * 10 + rand.nextInt(10);
                 reply.setContent(String.valueOf(metric));
-                System.out.println(id + " proposing with metric: " + metric
-                        + " (queue: " + queueSize + ", requester: " + requester + ")");
+                // System.out.println(id + " proposing with metric: " + metric
+                //         + " (queue: " + queueSize + ", requester: " + requester + ")");
                 return reply;
             }
 
@@ -116,14 +116,14 @@ public class ResourceAgent extends Agent {
                 queueSize++;
                 occupied = true;
                 occupiedBy = accept.getSender().getLocalName();
-                System.out.println(id + " proposal accepted by " + occupiedBy
-                        + ". Location: " + location + " (now OCCUPIED)");
+                // System.out.println(id + " proposal accepted by " + occupiedBy
+                //         + ". Location: " + location + " (now OCCUPIED)");
                 return reply;
             }
 
             @Override
             protected void handleRejectProposal(ACLMessage cfp, ACLMessage propose, ACLMessage reject) {
-                System.out.println(id + " proposal was rejected.");
+                // System.out.println(id + " proposal was rejected.");
             }
         });
 
@@ -139,13 +139,13 @@ public class ResourceAgent extends Agent {
             protected ACLMessage prepareResultNotification(ACLMessage request, ACLMessage response)
                     throws FailureException {
                 String skillId = request.getContent();
-                System.out.println(id + " executing skill: " + skillId);
+                // System.out.println(id + " executing skill: " + skillId);
                 String result = myLib.executeSkill(skillId);
                 ACLMessage reply = request.createReply();
                 if (result != null) {
                     reply.setPerformative(ACLMessage.INFORM);
                     reply.setContent(result); // "done", "OK", or "NOK#REGION"
-                    System.out.println(id + " finished executing skill: " + skillId + " | result: " + result);
+                    // System.out.println(id + " finished executing skill: " + skillId + " | result: " + result);
                 } else {
                     reply.setPerformative(ACLMessage.FAILURE);
                     reply.setContent("Skill execution failed: " + skillId);
@@ -168,7 +168,7 @@ public class ResourceAgent extends Agent {
                 ACLMessage msg = myAgent.receive(releaseTemplate);
                 if (msg != null) {
                     String who = msg.getSender().getLocalName();
-                    System.out.println(id + " RELEASED by " + who + " — station is now FREE.");
+                    // System.out.println(id + " RELEASED by " + who + " — station is now FREE.");
                     occupied = false;
                     occupiedBy = null;
                 } else {
