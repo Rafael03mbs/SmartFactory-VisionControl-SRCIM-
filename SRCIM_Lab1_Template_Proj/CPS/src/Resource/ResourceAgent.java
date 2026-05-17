@@ -14,7 +14,6 @@ import jade.proto.AchieveREResponder;
 import jade.proto.ContractNetResponder;
 
 import java.util.Arrays;
-import java.util.Random;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -35,9 +34,6 @@ public class ResourceAgent extends Agent {
     String[] associatedSkills;
     String location;
 
-    // Queue size used for load balancing during negotiation
-    int queueSize = 0;
-
     // Tracks physical occupation: true when an item is on this station.
     // Stays true from proposal acceptance until the product sends an
     // explicit RELEASE after being moved away by the AGV.
@@ -47,6 +43,13 @@ public class ResourceAgent extends Agent {
     // The occupant is allowed to re-negotiate (e.g. sk_g_a then sk_g_b
     // on the same GlueStation without moving away).
     volatile String occupiedBy = null;
+
+    // True while a destination has been reserved but the product has not
+    // started executing on it yet. This lets us recover stale reservations
+    // left behind by failed moves.
+    volatile boolean reservedOnly = false;
+    volatile long reservationStartedAt = 0;
+    private static final long RESERVATION_TIMEOUT_MS = 90000;
 
     @Override
     protected void setup() {
@@ -98,24 +101,24 @@ public class ResourceAgent extends Agent {
 
                 ACLMessage reply = cfp.createReply();
                 reply.setPerformative(ACLMessage.PROPOSE);
-                // Metric based on queue size — lower is better, idle resources win
-                Random rand = new Random();
-                int metric = queueSize * 10 + rand.nextInt(10);
+                int metric = requester.equals(occupiedBy) ? 0 : 1;
                 reply.setContent(String.valueOf(metric));
-                // System.out.println(id + " proposing with metric: " + metric
-                //         + " (queue: " + queueSize + ", requester: " + requester + ")");
                 return reply;
             }
 
             @Override
             protected ACLMessage handleAcceptProposal(ACLMessage cfp, ACLMessage propose, ACLMessage accept)
                     throws FailureException {
+                String requester = accept.getSender().getLocalName();
+                boolean sameOccupant = occupied && requester.equals(occupiedBy);
+
                 ACLMessage reply = accept.createReply();
                 reply.setPerformative(ACLMessage.INFORM);
                 reply.setContent(location);
-                queueSize++;
                 occupied = true;
-                occupiedBy = accept.getSender().getLocalName();
+                occupiedBy = requester;
+                reservedOnly = !sameOccupant;
+                reservationStartedAt = System.currentTimeMillis();
                 // System.out.println(id + " proposal accepted by " + occupiedBy
                 //         + ". Location: " + location + " (now OCCUPIED)");
                 return reply;
@@ -136,8 +139,21 @@ public class ResourceAgent extends Agent {
 
         addBehaviour(new AchieveREResponder(this, executeTemplate) {
             @Override
+            protected ACLMessage prepareResponse(ACLMessage request) throws NotUnderstoodException, RefuseException {
+                return null; // Prevents "prepareResponse() method not re-defined" warning
+            }
+
+            @Override
             protected ACLMessage prepareResultNotification(ACLMessage request, ACLMessage response)
                     throws FailureException {
+                String requester = request.getSender().getLocalName();
+                if (occupied && occupiedBy != null && !requester.equals(occupiedBy)) {
+                    throw new FailureException("Station " + id + " is occupied by " + occupiedBy);
+                }
+
+                occupied = true;
+                occupiedBy = requester;
+                reservedOnly = false;
                 String skillId = request.getContent();
                 // System.out.println(id + " executing skill: " + skillId);
                 String result = myLib.executeSkill(skillId);
@@ -149,9 +165,8 @@ public class ResourceAgent extends Agent {
                 } else {
                     reply.setPerformative(ACLMessage.FAILURE);
                     reply.setContent("Skill execution failed: " + skillId);
-                    System.out.println(id + " FAILED executing skill: " + skillId);
+                    // System.out.println(id + " FAILED executing skill: " + skillId);
                 }
-                queueSize = Math.max(0, queueSize - 1);
                 // DO NOT set occupied=false here — item is still physically on the station.
                 return reply;
             }
@@ -168,12 +183,31 @@ public class ResourceAgent extends Agent {
                 ACLMessage msg = myAgent.receive(releaseTemplate);
                 if (msg != null) {
                     String who = msg.getSender().getLocalName();
-                    // System.out.println(id + " RELEASED by " + who + " — station is now FREE.");
-                    occupied = false;
-                    occupiedBy = null;
+                    if (occupiedBy == null || who.equals(occupiedBy)) {
+                        // System.out.println(id + " RELEASED by " + who + " — station is now FREE.");
+                        occupied = false;
+                        occupiedBy = null;
+                        reservedOnly = false;
+                    }
                 } else {
                     block();
                 }
+            }
+        });
+
+        // Safety net: if a product reserved this station but never arrived
+        // (for example because the AGV move failed), free the station again.
+        addBehaviour(new CyclicBehaviour() {
+            @Override
+            public void action() {
+                if (reservedOnly && occupied
+                        && System.currentTimeMillis() - reservationStartedAt > RESERVATION_TIMEOUT_MS) {
+                    System.out.println("[WARN] " + id + " cleared stale reservation from " + occupiedBy);
+                    occupied = false;
+                    occupiedBy = null;
+                    reservedOnly = false;
+                }
+                block(1000);
             }
         });
     }

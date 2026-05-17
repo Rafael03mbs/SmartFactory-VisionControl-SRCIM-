@@ -53,6 +53,10 @@ public class ProductAgent extends Agent {
     // Lab 2: Prevents infinite recovery loops — only one recovery attempt allowed
     boolean recoveryAttempted = false;
 
+    // Set when a skill fails permanently; prevents the dynamic chain from
+    // appending more work while JADE is deleting the product agent.
+    boolean aborted = false;
+
     @Override
     protected void setup() {
         Object[] args = this.getArguments();
@@ -102,6 +106,10 @@ public class ProductAgent extends Agent {
         seq.addSubBehaviour(new OneShotBehaviour() {
             @Override
             public void action() {
+                if (aborted) {
+                    return;
+                }
+
                 // Lab 2: Check QC result and insert recovery if needed
                 if (skill.equals(Constants.SK_QUALITY_CHECK)
                         && lastExecutionResult != null
@@ -122,11 +130,11 @@ public class ProductAgent extends Agent {
                         recoverySkill = Constants.SK_GLUE_TYPE_C; // Only GlueStation2 has this
                     }
 
-                    // Insert recovery steps right after the current position
+                    // Insert recovery steps right after the current position.
+                    // The recovery glue pass uses the same probability as a normal pass.
                     int insertPos = index + 1;
                     executionPlan.add(insertPos, recoverySkill);
                     executionPlan.add(insertPos + 1, Constants.SK_QUALITY_CHECK);
-                    // sk_drop was at index+1, now shifted to index+3
 
                     System.out.println("╔══════════════════════════════════════╗");
                     System.out.println("║  RECOVERY | " + id + " is NOK!");
@@ -164,13 +172,25 @@ public class ProductAgent extends Agent {
      */
     private void releaseOccupiedResource() {
         if (occupiedResourceAID != null) {
-            ACLMessage release = new ACLMessage(ACLMessage.INFORM);
-            release.setOntology(Constants.ONTOLOGY_RELEASE_RESOURCE);
-            release.addReceiver(occupiedResourceAID);
-            send(release);
-            // System.out.println(id + " released " + occupiedResourceAID.getLocalName());
+            releaseResource(occupiedResourceAID);
             occupiedResourceAID = null;
         }
+    }
+
+    /**
+     * Releases a specific reservation/occupation without changing our current
+     * occupiedResourceAID pointer. Used when a destination was reserved but the
+     * move failed before the product arrived there.
+     */
+    private void releaseResource(AID resourceAID) {
+        if (resourceAID == null) {
+            return;
+        }
+
+        ACLMessage release = new ACLMessage(ACLMessage.INFORM);
+        release.setOntology(Constants.ONTOLOGY_RELEASE_RESOURCE);
+        release.addReceiver(resourceAID);
+        send(release);
     }
 
     /**
@@ -191,9 +211,8 @@ public class ProductAgent extends Agent {
         String chosenResourceLocation;
         DFAgentDescription[] transportResources;
 
-        // Retry counter: after too many failures, disable lookahead to break deadlocks
+        // Retry counter used only for readable logs while the product waits.
         int negotiationRetries = 0;
-        static final int LOOKAHEAD_RETRY_LIMIT = 3;
 
         public SkillFSM(String skill, int stepNum, int totalSteps) {
             this.skill = skill;
@@ -205,36 +224,12 @@ public class ProductAgent extends Agent {
                 @Override
                 public void action() {
                     negotiationRetries++;
-                    // System.out.println(id + " [Step " + stepNum + "/" + totalSteps + "] Processing skill: " + skill
-                    //         + (negotiationRetries > 1 ? " (retry #" + negotiationRetries + ")" : ""));
+                    System.out.println("[DBG] " + id + " [Step " + stepNum + "/" + totalSteps + "] Negotiating: " + skill
+                            + (negotiationRetries > 1 ? " (retry #" + negotiationRetries + ")" : ""));
                     try {
                         DFAgentDescription[] currentRes = DFInteraction.SearchInDFByName(skill, myAgent);
                         
-                        // Lookahead to prevent deadlocks: if a resource provides BOTH the current and next skill, prefer it.
-                        // BUT: after LOOKAHEAD_RETRY_LIMIT failures, disable it to avoid circular waits.
-                        if (negotiationRetries <= LOOKAHEAD_RETRY_LIMIT && stepNum < executionPlan.size()) {
-                            String nextSkill = executionPlan.get(stepNum);
-                            DFAgentDescription[] nextRes = DFInteraction.SearchInDFByName(nextSkill, myAgent);
-                            
-                            ArrayList<DFAgentDescription> intersection = new ArrayList<>();
-                            for (DFAgentDescription cr : currentRes) {
-                                for (DFAgentDescription nr : nextRes) {
-                                    if (cr.getName().equals(nr.getName())) {
-                                        intersection.add(cr);
-                                        break;
-                                    }
-                                }
-                            }
-                            
-                            if (!intersection.isEmpty()) {
-                                availableResources = intersection.toArray(new DFAgentDescription[0]);
-                                return;
-                            }
-                        } else if (negotiationRetries > LOOKAHEAD_RETRY_LIMIT) {
-                            // System.out.println(id + " LOOKAHEAD DISABLED for " + skill + " — negotiating with ALL resources");
-                        }
-                        
-                        availableResources = currentRes;
+                        availableResources = preferResourcesThatCanAlsoDoNextSkill(currentRes);
                     } catch (FIPAException e) {
                         e.printStackTrace();
                     }
@@ -306,11 +301,7 @@ public class ProductAgent extends Agent {
                     } else {
                         // ── ALL resources refused ── wait and retry
                         // System.out.println(id + " ALL stations busy for skill " + skill + " — will retry in 1s.");
-                        try {
-                            Thread.sleep(1000);
-                        } catch (InterruptedException ex) {
-                            ex.printStackTrace();
-                        }
+                        block(1000);
                         nextState = 0; // loop back to SEARCH_RES
                     }
                 }
@@ -347,11 +338,22 @@ public class ProductAgent extends Agent {
 
             // Request move from transport agent
             AchieveREInitiator move = new AchieveREInitiator(ProductAgent.this, new ACLMessage(ACLMessage.REQUEST)) {
+                // 0 = retry resource negotiation, 1 = move succeeded
+                int nextState = 0;
+
                 @Override
                 protected Vector prepareRequests(ACLMessage req) {
+                    if (req == null) {
+                        req = new ACLMessage(ACLMessage.REQUEST);
+                    }
+                    nextState = 0;
+                    req.clearAllReceiver();
                     req.setOntology(Constants.ONTOLOGY_MOVE);
                     if (transportResources != null && transportResources.length > 0) {
                         req.addReceiver(transportResources[0].getName());
+                    } else {
+                        System.out.println("[WARN] " + id + " found no transport agent for move "
+                                + currentLocation + " -> " + chosenResourceLocation);
                     }
                     req.setContent(currentLocation + Constants.TOKEN + chosenResourceLocation);
 
@@ -362,10 +364,35 @@ public class ProductAgent extends Agent {
 
                 @Override
                 protected void handleInform(ACLMessage inform) {
-                    // AGV has moved us — release the OLD station we were sitting on
                     releaseOccupiedResource();
                     currentLocation = chosenResourceLocation;
-                    // We will set occupiedResourceAID after skill execution
+                    nextState = 1;
+                    System.out.println("[DBG] " + id + " arrived at " + currentLocation + " | t=" + (System.currentTimeMillis() - startTime) + "ms");
+                }
+
+                @Override
+                protected void handleFailure(ACLMessage failure) {
+                    releaseResource(chosenResourceAID);
+                    System.out.println("[WARN] " + id + " move failed to " + chosenResourceLocation
+                            + " — released reservation and will retry.");
+                    block(1000);
+                    nextState = 0;
+                }
+
+                @Override
+                protected void handleAllResultNotifications(Vector notifications) {
+                    if (notifications == null || notifications.isEmpty()) {
+                        releaseResource(chosenResourceAID);
+                        System.out.println("[WARN] " + id + " got no move result for " + currentLocation
+                                + " -> " + chosenResourceLocation + " — released reservation and will retry.");
+                        block(1000);
+                        nextState = 0;
+                    }
+                }
+
+                @Override
+                public int onEnd() {
+                    return nextState;
                 }
             };
 
@@ -373,6 +400,10 @@ public class ProductAgent extends Agent {
             AchieveREInitiator execute = new AchieveREInitiator(ProductAgent.this, new ACLMessage(ACLMessage.REQUEST)) {
                 @Override
                 protected Vector prepareRequests(ACLMessage req) {
+                    if (req == null) {
+                        req = new ACLMessage(ACLMessage.REQUEST);
+                    }
+                    req.clearAllReceiver();
                     req.setOntology(Constants.ONTOLOGY_EXECUTE_SKILL);
                     req.addReceiver(chosenResourceAID);
                     req.setContent(skill);
@@ -384,12 +415,30 @@ public class ProductAgent extends Agent {
 
                 @Override
                 protected void handleInform(ACLMessage inform) {
-                    // Store the result for the result checker to process
                     lastExecutionResult = inform.getContent();
-                    // Skill done — we are now physically on this station
                     occupiedResourceAID = chosenResourceAID;
-                    // System.out.println(id + " skill " + skill + " completed. Result: "
-                    //         + lastExecutionResult + " | Occupying " + chosenResourceAID.getLocalName());
+                    System.out.println("[DBG] " + id + " DONE skill: " + skill + " | result: " + lastExecutionResult + " | t=" + (System.currentTimeMillis() - startTime) + "ms");
+                }
+
+                @Override
+                protected void handleFailure(ACLMessage failure) {
+                    handleExecuteFailure("failure reply");
+                }
+
+                @Override
+                protected void handleAllResultNotifications(Vector notifications) {
+                    if (notifications == null || notifications.isEmpty()) {
+                        handleExecuteFailure("missing result notification");
+                    }
+                }
+
+                private void handleExecuteFailure(String reason) {
+                    occupiedResourceAID = chosenResourceAID;
+                    lastExecutionResult = "FAILURE";
+                    aborted = true;
+                    System.out.println("[ERROR] " + id + " execution failed for " + skill
+                            + " (" + reason + "). Product will be removed to avoid blocking the line.");
+                    myAgent.doDelete();
                 }
             };
 
@@ -409,7 +458,33 @@ public class ProductAgent extends Agent {
             // Transition 2: already at location
             registerTransition("NEGOTIATE", "EXECUTE", 2);
             registerDefaultTransition("SEARCH_TRANS", "MOVE");
-            registerDefaultTransition("MOVE", "EXECUTE");
+            registerTransition("MOVE", "SEARCH_RES", 0, new String[]{"SEARCH_RES", "NEGOTIATE", "SEARCH_TRANS", "MOVE"});
+            registerTransition("MOVE", "EXECUTE", 1);
+        }
+
+        private DFAgentDescription[] preferResourcesThatCanAlsoDoNextSkill(DFAgentDescription[] currentRes)
+                throws FIPAException {
+            if (stepNum >= executionPlan.size()) {
+                return currentRes;
+            }
+
+            String nextSkill = executionPlan.get(stepNum);
+            DFAgentDescription[] nextRes = DFInteraction.SearchInDFByName(nextSkill, myAgent);
+            ArrayList<DFAgentDescription> intersection = new ArrayList<>();
+
+            for (DFAgentDescription current : currentRes) {
+                for (DFAgentDescription next : nextRes) {
+                    if (current.getName().equals(next.getName())) {
+                        intersection.add(current);
+                        break;
+                    }
+                }
+            }
+
+            if (intersection.isEmpty()) {
+                return currentRes;
+            }
+            return intersection.toArray(new DFAgentDescription[0]);
         }
     }
 

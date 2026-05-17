@@ -4,13 +4,13 @@ import Utilities.Constants;
 import Utilities.DFInteraction;
 import jade.core.Agent;
 import jade.domain.FIPAAgentManagement.FailureException;
+import jade.domain.FIPAAgentManagement.NotUnderstoodException;
 import jade.domain.FIPAException;
 import jade.lang.acl.ACLMessage;
 import jade.lang.acl.MessageTemplate;
 import jade.proto.AchieveREResponder;
 
 import java.util.Arrays;
-import java.util.StringTokenizer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -63,13 +63,21 @@ public class TransportAgent extends Agent {
 
         addBehaviour(new AchieveREResponder(this, moveTemplate) {
             @Override
+            protected ACLMessage prepareResponse(ACLMessage request) throws NotUnderstoodException {
+                return null; // Prevents "prepareResponse() method not re-defined" warning
+            }
+
+            @Override
             protected ACLMessage prepareResultNotification(ACLMessage request, ACLMessage response)
                     throws FailureException {
                 String content = request.getContent();
                 // Parse "origin#TOKEN#destination"
-                StringTokenizer st = new StringTokenizer(content, Constants.TOKEN);
-                String origin = st.nextToken();
-                String destination = st.nextToken();
+                String[] moveParts = content.split(java.util.regex.Pattern.quote(Constants.TOKEN), 2);
+                if (moveParts.length < 2) {
+                    throw new FailureException("Invalid move request: " + content);
+                }
+                String origin = moveParts[0];
+                String destination = moveParts[1];
                 String productID = request.getSender().getLocalName();
 
                 // System.out

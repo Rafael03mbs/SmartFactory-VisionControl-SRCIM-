@@ -7,7 +7,7 @@ import jade.wrapper.AgentController;
 import jade.wrapper.StaleProxyException;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -23,12 +23,11 @@ public class OrderAgent extends Agent {
     int productB;
     int productC;
 
-    private int productCounter = 0;
-
     // Max simultaneous products in the system
     private static final int WIP_LIMIT = 4;
 
     private static int activeProducts = 0;
+    private static int productCounter = 0;
     private static final Object lock = new Object();
 
     /** Called by ProductAgent when it finishes. */
@@ -41,9 +40,9 @@ public class OrderAgent extends Agent {
     @Override
     protected void setup() {
         Object[] args = this.getArguments();
-        this.productA = (int) args[0];
-        this.productB = (int) args[1];
-        this.productC = (int) args[2];
+        this.productA = parseProductCount(args, 0);
+        this.productB = parseProductCount(args, 1);
+        this.productC = parseProductCount(args, 2);
 
         System.out.println("Order Received " + " ProductsA " + productA +
                 " ProductsB " + productB + " ProductsC " + productC);
@@ -63,6 +62,17 @@ public class OrderAgent extends Agent {
     @Override
     protected void takeDown() {
         super.takeDown();
+    }
+
+    private int parseProductCount(Object[] args, int index) {
+        if (args == null || args.length <= index || args[index] == null) {
+            return 0;
+        }
+        Object value = args[index];
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        return Integer.parseInt(value.toString().trim());
     }
 
     /**
@@ -116,12 +126,12 @@ public class OrderAgent extends Agent {
 
     private void launchProduct(String productType) throws StaleProxyException {
         ProductAgent newProduct = new ProductAgent();
-        String id = "Product" + this.productCounter;
+        String id = "Product" + productCounter;
         newProduct.setArguments(new Object[] { id, productType });
         AgentController agent = this.getContainerController().acceptNewAgent(id, newProduct);
         agent.start();
         System.out.println("Launched " + id + " (Type " + productType + ") [Active: " + (activeProducts + 1) + "/" + WIP_LIMIT + "]");
-        this.productCounter++;
+        productCounter++;
     }
 
     /**
@@ -130,7 +140,7 @@ public class OrderAgent extends Agent {
      */
     private List<String> generateBalancedSequence(int a, int b, int c) {
         List<String> result = new ArrayList<>();
-        Map<String, Integer> counts = new HashMap<>();
+        Map<String, Integer> counts = new LinkedHashMap<>();
         if (a > 0)
             counts.put("A", a);
         if (b > 0)

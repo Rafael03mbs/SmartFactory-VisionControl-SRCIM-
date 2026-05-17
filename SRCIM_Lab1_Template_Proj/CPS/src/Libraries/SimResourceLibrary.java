@@ -27,7 +27,7 @@ public class SimResourceLibrary implements IResource {
     public remoteApi sim;
     public int clientID = -1;
     Agent myAgent;
-    final long timeout = 30000;
+    final long timeout = 120000;
 
     // Lab 2: Inspection API endpoint
     private static final String INSPECTION_API_URL = "http://localhost:8000/inspect";
@@ -97,6 +97,10 @@ public class SimResourceLibrary implements IResource {
 
     @Override
     public String executeSkill(String skillID) {
+        // Clear any residual signals from previous executions
+        sim.simxClearStringSignal(clientID, myAgent.getLocalName(), sim.simx_opmode_blocking);
+        sim.simxClearIntegerSignal(clientID, myAgent.getLocalName(), sim.simx_opmode_blocking);
+
         // Step 1: Send skill command to CoppeliaSim and wait for completion
         sim.simxSetStringSignal(clientID, myAgent.getLocalName(), new CharWA(skillID), sim.simx_opmode_blocking);
         IntW opRes = new IntW(-1);
@@ -110,25 +114,15 @@ public class SimResourceLibrary implements IResource {
             }
         }
         sim.simxClearIntegerSignal(clientID, myAgent.getLocalName(), sim.simx_opmode_blocking);
+        sim.simxClearStringSignal(clientID, myAgent.getLocalName(), sim.simx_opmode_blocking);
 
         if (opRes.getValue() != 1) {
             return null; // Skill execution failed (timeout)
         }
 
-        // Workaround: Wait for the physical robot arm to fully retract in CoppeliaSim
-        // before telling the Product Agent the skill is done. This prevents the AGV
-        // from pulling the tray while the arm is still returning to its home position.
-        if (skillID.startsWith("sk_g_")) {
-            try {
-                System.out.println("[SimResourceLibrary] " + myAgent.getLocalName() + " finished gluing, waiting for arm to retract...");
-                Thread.sleep(2000); 
-            } catch (InterruptedException ex) {
-                Logger.getLogger(SimResourceLibrary.class.getName()).log(Level.SEVERE, null, ex);
-            }
-        }
-
         // Step 2: For Quality Check, call the AI Inspection API
         if (skillID.equals(Utilities.Constants.SK_QUALITY_CHECK)) {
+            try { Thread.sleep(1000); } catch (InterruptedException e) {}
             return callInspectionAPI();
         }
 

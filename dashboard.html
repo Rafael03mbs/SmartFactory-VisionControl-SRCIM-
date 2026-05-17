@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SRCIM SmartFactory - Dashboard de Inspeção de Qualidade</title>
+    <!-- Google Fonts: Outfit & Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: rgba(17, 24, 39, 0.7);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --primary: #3b82f6;
+            --primary-glow: rgba(59, 130, 246, 0.15);
+            --accent-cyan: #06b6d4;
+            --success: #10b981;
+            --success-glow: rgba(16, 185, 129, 0.15);
+            --danger: #ef4444;
+            --danger-glow: rgba(239, 68, 68, 0.15);
+            --warning: #f59e0b;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.1) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, rgba(6, 182, 212, 0.08) 0px, transparent 50%),
+                radial-gradient(at 50% 100%, rgba(16, 185, 129, 0.05) 0px, transparent 50%);
+            background-attachment: fixed;
+        }
+
+        header {
+            padding: 24px 40px;
+            border-bottom: 1px solid var(--border-color);
+            background: rgba(11, 15, 25, 0.5);
+            backdrop-filter: blur(12px);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+        }
+
+        .header-title-container {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .logo-icon {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, var(--primary), var(--accent-cyan));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.4);
+            animation: pulse 3s infinite;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 20px rgba(59, 130, 246, 0.4); }
+            50% { box-shadow: 0 0 30px rgba(6, 182, 212, 0.6); }
+            100% { box-shadow: 0 0 20px rgba(59, 130, 246, 0.4); }
+        }
+
+        h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 24px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            background: linear-gradient(to right, #ffffff, #9ca3af);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .subtitle {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .status-badge-connection {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+            padding: 6px 14px;
+            border-radius: 9999px;
+            border: 1px solid rgba(16, 185, 129, 0.2);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background-color: var(--success);
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 8px var(--success);
+        }
+
+        main {
+            flex: 1;
+            padding: 32px 40px;
+            max-width: 1600px;
+            width: 100%;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 32px;
+        }
+
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .glass-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 24px;
+            backdrop-filter: blur(16px);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .glass-card:hover {
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+
+        .card-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 16px;
+            font-weight: 600;
+            color: #ffffff;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 12px;
+        }
+
+        /* Test Section Controls */
+        .sample-buttons-container {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(37, 99, 235, 0.15) 100%);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            color: var(--text-main);
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            text-align: left;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .btn:hover {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(37, 99, 235, 0.25) 100%);
+            border-color: rgba(59, 130, 246, 0.4);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+        }
+
+        .btn:active {
+            transform: translateY(1px);
+        }
+
+        .btn-arrow {
+            font-size: 14px;
+            color: var(--primary);
+            transition: transform 0.2s ease;
+        }
+
+        .btn:hover .btn-arrow {
+            transform: translateX(4px);
+        }
+
+        /* Upload Area */
+        .upload-area {
+            border: 2px dashed rgba(255, 255, 255, 0.15);
+            border-radius: 12px;
+            padding: 24px 16px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background: rgba(255, 255, 255, 0.02);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .upload-area:hover, .upload-area.dragover {
+            border-color: var(--primary);
+            background: rgba(59, 130, 246, 0.05);
+        }
+
+        .upload-icon {
+            font-size: 32px;
+            color: var(--text-muted);
+            transition: color 0.2s ease;
+        }
+
+        .upload-area:hover .upload-icon {
+            color: var(--primary);
+        }
+
+        .upload-text {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-main);
+        }
+
+        .upload-subtext {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        #file-input {
+            display: none;
+        }
+
+        /* Results Visualization Grid */
+        .visualizer-container {
+            display: flex;
+            flex-direction: column;
+            gap: 32px;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+        }
+
+        .metric-card {
+            background: rgba(17, 24, 39, 0.4);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .metric-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+        }
+
+        .metric-value {
+            font-family: 'Outfit', sans-serif;
+            font-size: 20px;
+            font-weight: 700;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .badge {
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            display: inline-block;
+        }
+
+        .badge-ok {
+            background: var(--success-glow);
+            color: var(--success);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.1);
+        }
+
+        .badge-nok {
+            background: var(--danger-glow);
+            color: var(--danger);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            box-shadow: 0 0 10px rgba(239, 68, 68, 0.1);
+        }
+
+        .badge-info {
+            background: var(--primary-glow);
+            color: var(--primary);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+
+        .badge-warning {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--warning);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+
+        /* Action Alert Box */
+        .action-alert {
+            grid-column: 1 / -1;
+            padding: 16px 24px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            font-weight: 500;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .action-alert.ok {
+            background: var(--success-glow);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            color: var(--success);
+        }
+
+        .action-alert.nok {
+            background: var(--danger-glow);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            color: var(--danger);
+        }
+
+        .action-alert-icon {
+            font-size: 20px;
+        }
+
+        /* Image Display Grid */
+        .images-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 32px;
+        }
+
+        @media (max-width: 1200px) {
+            .images-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .image-card {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .image-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 15px;
+            font-weight: 600;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .image-container {
+            border: 1px solid var(--border-color);
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            min-height: 350px;
+            max-height: 450px;
+            box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.4);
+        }
+
+        .image-container img {
+            max-width: 100%;
+            max-height: 450px;
+            object-fit: contain;
+            display: block;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .image-container img.loaded {
+            opacity: 1;
+        }
+
+        .placeholder-text {
+            color: var(--text-muted);
+            font-size: 13px;
+            text-align: center;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .placeholder-icon {
+            font-size: 40px;
+            color: rgba(255, 255, 255, 0.1);
+        }
+
+        /* JSON Response block */
+        .json-card {
+            grid-column: 1 / -1;
+        }
+
+        .json-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .btn-copy {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-copy:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #ffffff;
+        }
+
+        pre {
+            background: rgba(5, 8, 16, 0.85);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 16px;
+            max-height: 300px;
+            overflow-y: auto;
+            color: #38bdf8; /* cyan */
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            box-shadow: inset 0 2px 6px rgba(0,0,0,0.5);
+        }
+
+        /* Loader Animation */
+        .loader-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(11, 15, 25, 0.7);
+            backdrop-filter: blur(4px);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            z-index: 5;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+        }
+
+        .loader-overlay.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(59, 130, 246, 0.1);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s infinite linear;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loader-text {
+            font-size: 13px;
+            color: var(--text-main);
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-title-container">
+            <div class="logo-icon">🔍</div>
+            <div>
+                <h1>SmartFactory VisionControl</h1>
+                <div class="subtitle">Dashboard de Validação de Inspeção e Pós-Processamento • Lab 2</div>
+            </div>
+        </div>
+        
+        <div class="status-badge-connection">
+            <span class="status-dot"></span>
+            <span>API Online</span>
+        </div>
+    </header>
+
+    <main>
+        <!-- Sidebar controls -->
+        <div class="sidebar">
+            <div class="glass-card">
+                <div class="card-title">
+                    <span>🧪 Testar Imagens Locais</span>
+                </div>
+                <div class="sample-buttons-container">
+                    <button class="btn" onclick="testLocalSample('QualityControlStation1.jpg')">
+                        <span>QualityControlStation1.jpg</span>
+                        <span class="btn-arrow">→</span>
+                    </button>
+                    <button class="btn" onclick="testLocalSample('QualityControlStation2.jpg')">
+                        <span>QualityControlStation2.jpg</span>
+                        <span class="btn-arrow">→</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="glass-card">
+                <div class="card-title">
+                    <span>📤 Testar Ficheiro Próprio</span>
+                </div>
+                <div class="upload-area" id="drop-zone" onclick="document.getElementById('file-input').click()">
+                    <span class="upload-icon">📥</span>
+                    <span class="upload-text">Arraste a foto ou clique aqui</span>
+                    <span class="upload-subtext">Formatos aceites: JPG, PNG</span>
+                    <input type="file" id="file-input" accept="image/*" onchange="uploadImage(this.files[0])">
+                </div>
+            </div>
+        </div>
+
+        <!-- Center Visualization Panel -->
+        <div class="visualizer-container">
+            
+            <!-- Global info summary (Hidden until loaded) -->
+            <div id="results-summary" class="glass-card" style="display: none;">
+                <div class="metrics-grid">
+                    
+                    <div class="metric-card">
+                        <div class="metric-label">Status da Inspeção</div>
+                        <div class="metric-value" id="val-status">-</div>
+                    </div>
+                    
+                    <div class="metric-card">
+                        <div class="metric-label">Orientação do Tabuleiro</div>
+                        <div class="metric-value" id="val-orientation">-</div>
+                    </div>
+                    
+                    <div class="metric-card">
+                        <div class="metric-label">Zona com Defeitos</div>
+                        <div class="metric-value" id="val-region">-</div>
+                    </div>
+                    
+                    <div class="metric-card">
+                        <div class="metric-label">Total Defeitos</div>
+                        <div class="metric-value" id="val-defects">-</div>
+                    </div>
+
+                    <!-- Destination Command Box -->
+                    <div class="action-alert" id="action-box">
+                        <span class="action-alert-icon" id="action-icon">💡</span>
+                        <span id="action-text">Selecione uma imagem ou corra um teste para processar e ver os resultados.</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Side-by-Side Images -->
+            <div class="images-grid">
+                
+                <!-- Box 1: Original + Crop Area -->
+                <div class="glass-card image-card">
+                    <div class="image-title">
+                        <span>📦 1. Imagem Original & Deteção do Tabuleiro</span>
+                    </div>
+                    <div class="image-container" id="container-original">
+                        <!-- Loader overlay -->
+                        <div class="loader-overlay" id="loader-orig">
+                            <div class="spinner"></div>
+                            <div class="loader-text">A processar imagem...</div>
+                        </div>
+                        
+                        <div class="placeholder-text" id="placeholder-orig">
+                            <span class="placeholder-icon">📷</span>
+                            <span>Aguardando processamento...</span>
+                        </div>
+                        <img id="img-original" alt="Original visual result">
+                    </div>
+                </div>
+
+                <!-- Box 2: Cropped + YOLO + Regions -->
+                <div class="glass-card image-card">
+                    <div class="image-title">
+                        <span>🔍 2. Tabuleiro Recortado, YOLO & Pós-Processamento</span>
+                    </div>
+                    <div class="image-container" id="container-cropped">
+                        <!-- Loader overlay -->
+                        <div class="loader-overlay" id="loader-crop">
+                            <div class="spinner"></div>
+                            <div class="loader-text">A executar inferência YOLO...</div>
+                        </div>
+                        
+                        <div class="placeholder-text" id="placeholder-crop">
+                            <span class="placeholder-icon">🎯</span>
+                            <span>Aguardando inferência...</span>
+                        </div>
+                        <img id="img-cropped" alt="Cropped visual result">
+                    </div>
+                </div>
+
+                <!-- JSON Response Details -->
+                <div class="glass-card json-card">
+                    <div class="json-header">
+                        <div class="image-title"><span>💻 Resposta JSON Completa da API</span></div>
+                        <button class="btn-copy" onclick="copyJSON()">Copiar JSON</button>
+                    </div>
+                    <pre><code id="json-output">// Os resultados detalhados em formato JSON aparecerão aqui...</code></pre>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <script>
+        // Drag & Drop event bindings
+        const dropZone = document.getElementById('drop-zone');
+        
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, e => {
+                e.preventDefault();
+                dropZone.classList.add('dragover');
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, e => {
+                e.preventDefault();
+                dropZone.classList.remove('dragover');
+            }, false);
+        });
+
+        dropZone.addEventListener('drop', e => {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            if (files.length > 0) {
+                uploadImage(files[0]);
+            }
+        });
+
+        function showLoaders(show) {
+            if (show) {
+                document.getElementById('loader-orig').classList.add('active');
+                document.getElementById('loader-crop').classList.add('active');
+                document.getElementById('placeholder-orig').style.display = 'none';
+                document.getElementById('placeholder-crop').style.display = 'none';
+            } else {
+                document.getElementById('loader-orig').classList.remove('active');
+                document.getElementById('loader-crop').classList.remove('active');
+            }
+        }
+
+        // Copy raw JSON output to clipboard
+        function copyJSON() {
+            const codeEl = document.getElementById('json-output');
+            navigator.clipboard.writeText(codeEl.textContent)
+                .then(() => alert("Copiado com sucesso!"))
+                .catch(err => console.error("Erro ao copiar: ", err));
+        }
+
+        // Action routing logic based on defect region
+        function updateUIMetrics(data) {
+            document.getElementById('results-summary').style.display = 'block';
+            
+            const isOK = data.status === 'OK';
+            const statusEl = document.getElementById('val-status');
+            statusEl.innerHTML = isOK 
+                ? '<span class="badge badge-ok">Aprovado (OK)</span>' 
+                : '<span class="badge badge-nok">Rejeitado (NOK)</span>';
+            
+            const orientationEl = document.getElementById('val-orientation');
+            orientationEl.innerHTML = `<span class="badge badge-info">${data.orientation || 'DESCONHECIDA'}</span>`;
+            
+            const regionEl = document.getElementById('val-region');
+            let regionBadge = '';
+            if (data.defect_region === 'NONE') {
+                regionBadge = '<span class="badge badge-ok">NENHUMA</span>';
+            } else if (data.defect_region === 'TOP') {
+                regionBadge = '<span class="badge badge-nok">SUPERIOR (TOP)</span>';
+            } else {
+                regionBadge = '<span class="badge badge-warning">INFERIOR (BOTTOM)</span>';
+            }
+            regionEl.innerHTML = regionBadge;
+            
+            const countDefects = data.defects ? data.defects.length : 0;
+            const defectsEl = document.getElementById('val-defects');
+            defectsEl.innerHTML = isOK 
+                ? '<span style="color: var(--success); font-weight: 600;">0</span>'
+                : `<span style="color: var(--danger); font-weight: 600;">${countDefects}</span>`;
+            
+            // Destination action alerts
+            const actionBox = document.getElementById('action-box');
+            const actionIcon = document.getElementById('action-icon');
+            const actionText = document.getElementById('action-text');
+            
+            if (isOK) {
+                actionBox.className = 'action-alert ok';
+                actionIcon.textContent = '✅';
+                actionText.innerHTML = `<strong>PRODUTO APROVADO:</strong> Sem defeitos detetados. O produto segue na linha principal.`;
+            } else {
+                actionBox.className = 'action-alert nok';
+                actionIcon.textContent = '🚨';
+                if (data.defect_region === 'TOP') {
+                    actionText.innerHTML = `<strong>DEFEITO DETETADO (SUPERIOR):</strong> Encaminhar o produto para a <strong>GlueStation 1</strong> (para reparação automática via <em>sk_g_b</em>).`;
+                } else if (data.defect_region === 'BOTTOM') {
+                    actionText.innerHTML = `<strong>DEFEITO DETETADO (INFERIOR):</strong> Encaminhar o produto para a <strong>GlueStation 2</strong> (para reparação automática via <em>sk_g_c</em>).`;
+                } else {
+                    actionText.innerHTML = `<strong>DEFEITO DETETADO:</strong> Zona indeterminada. Parar a linha para inspeção manual.`;
+                }
+            }
+            
+            // Show Images
+            const imgOrig = document.getElementById('img-original');
+            const imgCrop = document.getElementById('img-cropped');
+            
+            if (data.visualization) {
+                imgOrig.src = `data:image/jpeg;base64,${data.visualization.original}`;
+                imgOrig.classList.add('loaded');
+                
+                imgCrop.src = `data:image/jpeg;base64,${data.visualization.cropped}`;
+                imgCrop.classList.add('loaded');
+            } else {
+                imgOrig.classList.remove('loaded');
+                imgCrop.classList.remove('loaded');
+                document.getElementById('placeholder-orig').style.display = 'flex';
+                document.getElementById('placeholder-crop').style.display = 'flex';
+            }
+            
+            // Format and print JSON
+            // Remove huge base64 strings from printed JSON so it's readable
+            const cleanData = JSON.parse(JSON.stringify(data));
+            if (cleanData.visualization) {
+                cleanData.visualization.original = "[Base64 Image String - Omitida para legibilidade]";
+                cleanData.visualization.cropped = "[Base64 Image String - Omitida para legibilidade]";
+            }
+            document.getElementById('json-output').textContent = JSON.stringify(cleanData, null, 4);
+        }
+
+        // Test with local file
+        async function testLocalSample(filename) {
+            showLoaders(true);
+            try {
+                const response = await fetch(`/inspect-sample?filename=${encodeURIComponent(filename)}`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                showLoaders(false);
+                if (data.error) {
+                    alert('Erro: ' + data.error);
+                } else {
+                    updateUIMetrics(data);
+                }
+            } catch (err) {
+                showLoaders(false);
+                alert('Erro na comunicação com a API: ' + err.message);
+            }
+        }
+
+        // Upload custom image
+        async function uploadImage(file) {
+            if (!file) return;
+            showLoaders(true);
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                const response = await fetch('/inspect?visual=true', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                showLoaders(false);
+                if (data.error) {
+                    alert('Erro: ' + data.error);
+                } else {
+                    updateUIMetrics(data);
+                }
+            } catch (err) {
+                showLoaders(false);
+                alert('Erro ao enviar imagem: ' + err.message);
+            }
+        }
+    </script>
+</body>
+</html>

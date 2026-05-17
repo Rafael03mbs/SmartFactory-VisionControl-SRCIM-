@@ -1,12 +1,141 @@
 import io
-from fastapi import FastAPI, UploadFile, File
+import os
+import base64
+from fastapi import FastAPI, UploadFile, File, Query
+from fastapi.responses import HTMLResponse
 from ultralytics import YOLO
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import uvicorn
-import cv2
 import numpy as np
 
 app = FastAPI(title="Quality Inspection API")
+
+DETECTION_CONFIDENCE = 0.10
+TRAY_THRESHOLD = 150
+TRAY_PADDING = 12
+
+def image_to_base64(img: Image.Image) -> str:
+    buffered = io.BytesIO()
+    img.save(buffered, format="JPEG")
+    return base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+def draw_tray_bbox(image: Image.Image, bbox: list) -> Image.Image:
+    annotated = image.copy().convert("RGBA")
+    draw = ImageDraw.Draw(annotated)
+    left, top, right, bottom = bbox
+    
+    # 1. Draw a prominent yellow outline for the tray
+    draw.rectangle([left, top, right, bottom], outline=(255, 215, 0, 255), width=6)
+    
+    # 2. Draw a semi-transparent filled rectangle inside
+    overlay = Image.new("RGBA", annotated.size, (0, 0, 0, 0))
+    overlay_draw = ImageDraw.Draw(overlay)
+    overlay_draw.rectangle([left, top, right, bottom], fill=(255, 215, 0, 25))
+    annotated = Image.alpha_composite(annotated, overlay)
+    
+    # 3. Add text label
+    draw = ImageDraw.Draw(annotated)
+    try:
+        font = ImageFont.truetype("arial.ttf", 16)
+    except IOError:
+        font = ImageFont.load_default()
+        
+    text = f"TABULEIRO DETETADO {bbox}"
+    # Draw dark background for the text to make it readable
+    text_w, text_h = 240, 22
+    draw.rectangle([left, max(0, top - 25), left + text_w, max(0, top)], fill=(255, 215, 0, 255))
+    draw.text((left + 5, max(0, top - 22)), text, fill=(0, 0, 0, 255), font=font)
+    
+    return annotated.convert("RGB")
+
+def draw_cropped_annotations(cropped_image: Image.Image, defects: list, orientation: str, defect_region: str) -> Image.Image:
+    annotated = cropped_image.copy().convert("RGBA")
+    w, h = annotated.size
+    overlay = Image.new("RGBA", annotated.size, (0, 0, 0, 0))
+    overlay_draw = ImageDraw.Draw(overlay)
+    
+    try:
+        font_large = ImageFont.truetype("arial.ttf", 14)
+        font_small = ImageFont.truetype("arial.ttf", 11)
+    except IOError:
+        font_large = ImageFont.load_default()
+        font_small = ImageFont.load_default()
+        
+    # 1. Draw division line and shade regions
+    if orientation == "HORIZONTAL":
+        mid_x = w / 2
+        # Vertical divider line
+        overlay_draw.line([(mid_x, 0), (mid_x, h)], fill=(255, 255, 255, 180), width=4)
+        
+        # Shade the active defect region in red, other in green
+        if len(defects) > 0:
+            if defect_region == "TOP":
+                overlay_draw.rectangle([0, 0, mid_x, h], fill=(255, 0, 0, 45))  # Active (Defect)
+                overlay_draw.rectangle([mid_x, 0, w, h], fill=(0, 255, 0, 20))  # Safe (OK)
+            elif defect_region == "BOTTOM":
+                overlay_draw.rectangle([0, 0, mid_x, h], fill=(0, 255, 0, 20))  # Safe (OK)
+                overlay_draw.rectangle([mid_x, 0, w, h], fill=(255, 0, 0, 45))  # Active (Defect)
+        else:
+            # Entire product OK
+            overlay_draw.rectangle([0, 0, w, h], fill=(0, 255, 0, 20))
+            
+        # Draw labels
+        overlay_draw.rectangle([10, 10, 280, 32], fill=(0, 0, 0, 160))
+        overlay_draw.text((15, 13), "ZONA SUPERIOR (TOP) - Station 1", fill=(255, 255, 255, 255), font=font_large)
+        
+        overlay_draw.rectangle([mid_x + 10, 10, mid_x + 300, 32], fill=(0, 0, 0, 160))
+        overlay_draw.text((mid_x + 15, 13), "ZONA INFERIOR (BOTTOM) - Station 2", fill=(255, 255, 255, 255), font=font_large)
+        
+    else:
+        mid_y = h / 2
+        # Horizontal divider line
+        overlay_draw.line([(0, mid_y), (w, mid_y)], fill=(255, 255, 255, 180), width=4)
+        
+        if len(defects) > 0:
+            if defect_region == "TOP":
+                overlay_draw.rectangle([0, 0, w, mid_y], fill=(255, 0, 0, 45))  # Active (Defect)
+                overlay_draw.rectangle([0, mid_y, w, h], fill=(0, 255, 0, 20))  # Safe (OK)
+            elif defect_region == "BOTTOM":
+                overlay_draw.rectangle([0, 0, w, mid_y], fill=(0, 255, 0, 20))  # Safe (OK)
+                overlay_draw.rectangle([0, mid_y, w, h], fill=(255, 0, 0, 45))  # Active (Defect)
+        else:
+            # Entire product OK
+            overlay_draw.rectangle([0, 0, w, h], fill=(0, 255, 0, 20))
+            
+        # Draw labels
+        overlay_draw.rectangle([10, 10, 280, 32], fill=(0, 0, 0, 160))
+        overlay_draw.text((15, 13), "ZONA SUPERIOR (TOP) - Station 1", fill=(255, 255, 255, 255), font=font_large)
+        
+        overlay_draw.rectangle([10, mid_y + 10, 300, mid_y + 32], fill=(0, 0, 0, 160))
+        overlay_draw.text((15, mid_y + 13), "ZONA INFERIOR (BOTTOM) - Station 2", fill=(255, 255, 255, 255), font=font_large)
+        
+    # Apply overlays
+    annotated = Image.alpha_composite(annotated, overlay)
+    
+    # 2. Draw YOLO bounding boxes for defects
+    draw = ImageDraw.Draw(annotated)
+    for d in defects:
+        cx, cy, dw, dh = d["x_center"], d["y_center"], d["width"], d["height"]
+        left = cx - dw / 2
+        top = cy - dh / 2
+        right = cx + dw / 2
+        bottom = cy + dh / 2
+        
+        # Draw bounding box (red with solid border)
+        draw.rectangle([left, top, right, bottom], outline=(255, 30, 30, 255), width=3)
+        
+        # Label class + confidence
+        label_text = f"{d.get('class_name', 'defeito')} ({d.get('confidence', 0.0)*100:.1f}%)"
+        
+        # Draw text background
+        draw.rectangle([left, max(0, top - 18), left + 130, max(0, top)], fill=(255, 30, 30, 255))
+        draw.text((left + 4, max(0, top - 16)), label_text, fill=(255, 255, 255, 255), font=font_small)
+        
+        # Draw center point
+        draw.ellipse([cx - 4, cy - 4, cx + 4, cy + 4], fill=(255, 255, 0, 255), outline=(0, 0, 0, 255))
+        
+    return annotated.convert("RGB")
+
 
 # Carregar o nosso cérebro recém-treinado
 print("=" * 60)
@@ -29,64 +158,50 @@ print(f"   Endpoint: POST http://localhost:8000/inspect")
 print("=" * 60)
 
 
-def detect_product_orientation(image: Image.Image) -> str:
+def crop_tray(image: Image.Image):
     """
-    Free-choice Feature (Option 2): Detect the product's orientation.
-    
-    Uses OpenCV contour analysis to determine if the product is in its
-    default HORIZONTAL orientation or if it arrived VERTICAL (rotated ~90°).
-    
-    Method: Finds the largest contour in the image (the product/glue path),
-    fits a minimum-area bounding rectangle, and checks its aspect ratio.
-    
-    Returns: "HORIZONTAL" (default) or "VERTICAL"
+    The model was trained with tray/product images, not the full station view.
+    Detect the bright tray region and crop the photo before sending it to YOLO.
     """
-    img_array = np.array(image)
-    gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-    
-    # Apply Gaussian blur to reduce noise
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    
-    # Adaptive threshold to isolate the product/glue path from the background
-    thresh = cv2.adaptiveThreshold(
-        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY_INV, 31, 10
-    )
-    
-    # Morphological operations to clean up the mask
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-    cleaned = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
-    
-    # Find contours
-    contours, _ = cv2.findContours(cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    if not contours:
-        return "HORIZONTAL"  # Default if no contours found
-    
-    # Get the largest contour (the product)
-    largest_contour = max(contours, key=cv2.contourArea)
-    
-    # Fit a minimum-area rotated rectangle
-    rect = cv2.minAreaRect(largest_contour)
-    rect_w, rect_h = rect[1]  # (width, height) of the rotated rectangle
-    
-    if rect_w == 0 or rect_h == 0:
-        return "HORIZONTAL"
-    
-    # Determine orientation based on aspect ratio
-    # If the bounding rect is taller than it is wide, the product is vertical
-    aspect_ratio = max(rect_w, rect_h) / min(rect_w, rect_h)
-    
-    # The product has a clear rectangular shape; if the dominant axis is vertical, it's rotated
-    if rect_w < rect_h:
-        # The shorter side is horizontal → product is standing up (vertical)
+    arr = np.array(image)
+    gray = arr.mean(axis=2)
+    mask = gray > TRAY_THRESHOLD
+
+    ys, xs = np.where(mask)
+    if len(xs) == 0 or len(ys) == 0:
+        print("[TRAY] Could not detect tray; using full image")
+        return image, {
+            "bbox": [0, 0, image.width, image.height],
+            "cropped": False,
+            "threshold": TRAY_THRESHOLD,
+        }
+
+    left = max(0, int(xs.min()) - TRAY_PADDING)
+    top = max(0, int(ys.min()) - TRAY_PADDING)
+    right = min(image.width, int(xs.max()) + TRAY_PADDING + 1)
+    bottom = min(image.height, int(ys.max()) + TRAY_PADDING + 1)
+
+    crop = image.crop((left, top, right, bottom))
+    print(f"[TRAY] Cropped tray bbox=({left},{top},{right},{bottom}) "
+          f"size={crop.width}x{crop.height}")
+
+    return crop, {
+        "bbox": [left, top, right, bottom],
+        "cropped": True,
+        "threshold": TRAY_THRESHOLD,
+    }
+
+
+def detect_tray_orientation(tray_image: Image.Image) -> str:
+    if tray_image.width > tray_image.height * 1.15:
+        orientation = "HORIZONTAL"
+    elif tray_image.height > tray_image.width * 1.15:
         orientation = "VERTICAL"
     else:
-        orientation = "HORIZONTAL"
-    
-    print(f"[ORIENTATION] Rect: {rect_w:.0f}x{rect_h:.0f}, "
-          f"Aspect ratio: {aspect_ratio:.2f}, Result: {orientation}")
-    
+        orientation = "SQUARE"
+
+    print(f"[ORIENTATION] Tray size: {tray_image.width}x{tray_image.height}, "
+          f"Result: {orientation}")
     return orientation
 
 
@@ -96,12 +211,9 @@ def classify_defect_region(defects_info: list, img_w: float, img_h: float,
     Free-choice Feature (Option 2): Classify defect region relative to
     the product's DEFAULT (horizontal) orientation.
     
-    When the product is in its default HORIZONTAL orientation:
-      - Use y_center: top half → "TOP", bottom half → "BOTTOM"
-    
-    When the product arrives VERTICAL (rotated ~90°):
-      - The "top" of the default orientation is now on one side
-      - Use x_center instead: left half → "TOP", right half → "BOTTOM"
+    The examples from the QC stations show a vertical tray, but the same tray can
+    arrive horizontal. For vertical trays, TOP/BOTTOM maps directly to y. For a
+    horizontal tray, the old top/bottom direction is now left/right in the image.
       
     This ensures the correct glue station is chosen regardless of how
     the product arrives at the quality control station.
@@ -110,18 +222,40 @@ def classify_defect_region(defects_info: list, img_w: float, img_h: float,
     BOTTOM → GlueStation2 (recovery with sk_g_c)
     """
     if orientation == "HORIZONTAL":
-        # Standard case: use y position
-        avg_y = sum(d["y_center"] for d in defects_info) / len(defects_info)
-        region = "TOP" if avg_y < img_h / 2 else "BOTTOM"
-        print(f"[REGION] Horizontal: avg_y={avg_y:.1f}, mid={img_h/2:.1f} → {region}")
-    else:
-        # Vertical: the product is rotated ~90°, so map x → y
-        # Left side in vertical = Top in default orientation
         avg_x = sum(d["x_center"] for d in defects_info) / len(defects_info)
         region = "TOP" if avg_x < img_w / 2 else "BOTTOM"
-        print(f"[REGION] Vertical: avg_x={avg_x:.1f}, mid={img_w/2:.1f} → {region}")
+        print(f"[REGION] Horizontal tray: avg_x={avg_x:.1f}, mid={img_w/2:.1f} → {region}")
+    else:
+        avg_y = sum(d["y_center"] for d in defects_info) / len(defects_info)
+        region = "TOP" if avg_y < img_h / 2 else "BOTTOM"
+        print(f"[REGION] Vertical tray: avg_y={avg_y:.1f}, mid={img_h/2:.1f} → {region}")
     
     return region
+
+
+def extract_defects(boxes) -> list:
+    defects_info = []
+    for i, box in enumerate(boxes.xywh):
+        x, y, w, h = box.tolist()
+        defect = {
+            "x_center": float(x),
+            "y_center": float(y),
+            "width": float(w),
+            "height": float(h),
+        }
+
+        if getattr(boxes, "conf", None) is not None:
+            defect["confidence"] = float(boxes.conf[i])
+        if getattr(boxes, "cls", None) is not None:
+            class_id = int(boxes.cls[i])
+            defect["class_id"] = class_id
+            if isinstance(class_names, dict):
+                defect["class_name"] = class_names.get(class_id, str(class_id))
+            else:
+                defect["class_name"] = str(class_names[class_id]) if class_id < len(class_names) else str(class_id)
+
+        defects_info.append(defect)
+    return defects_info
 
 
 @app.post("/inspect")
@@ -130,9 +264,15 @@ async def inspect_product(file: UploadFile = File(...)):
         # Ler a imagem que o Java (Simulador) nos enviou
         image_bytes = await file.read()
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+
+        if model is None:
+            return {"error": "YOLO model was not loaded"}
+
+        tray_image, tray_info = crop_tray(image)
+        orientation = detect_tray_orientation(tray_image)
         
-        # O YOLO entra em ação e avalia a imagem
-        results = model(image, conf=0.1)
+        # O YOLO recebe só o tabuleiro, que é o domínio em que foi treinado.
+        results = model(tray_image, conf=DETECTION_CONFIDENCE)
         
         # Analisar o que o YOLO viu na imagem
         boxes = results[0].boxes
@@ -143,25 +283,16 @@ async def inspect_product(file: UploadFile = File(...)):
                 "status": "OK", 
                 "message": "Produto em perfeitas condições",
                 "defect_region": "NONE",
-                "orientation": detect_product_orientation(image)
+                "orientation": orientation,
+                "source_image_size": [image.width, image.height],
+                "model_image_size": [tray_image.width, tray_image.height],
+                "tray": tray_info,
             }
         
         # Extrair informação dos defeitos detetados
-        defects_info = []
-        for box in boxes.xywh:  # x-centro, y-centro, largura, altura
-            x, y, w, h = box.tolist()
-            defects_info.append({
-                "x_center": float(x),
-                "y_center": float(y),
-                "width": float(w),
-                "height": float(h)
-            })
-        
-        img_w = float(image.width)
-        img_h = float(image.height)
-        
-        # Free-choice Feature: Detect product orientation
-        orientation = detect_product_orientation(image)
+        defects_info = extract_defects(boxes)
+        img_w = float(tray_image.width)
+        img_h = float(tray_image.height)
         
         # Classify defect region relative to default orientation
         defect_region = classify_defect_region(defects_info, img_w, img_h, orientation)
@@ -169,10 +300,11 @@ async def inspect_product(file: UploadFile = File(...)):
         return {
             "status": "NOK", 
             "message": f"Atenção: {len(boxes)} defeito(s) detetado(s)!",
-            "image_width": img_w,
-            "image_height": img_h,
+            "source_image_size": [image.width, image.height],
+            "model_image_size": [tray_image.width, tray_image.height],
             "orientation": orientation,
             "defect_region": defect_region,
+            "tray": tray_info,
             "defects": defects_info
         }
     except Exception as e:
@@ -181,5 +313,5 @@ async def inspect_product(file: UploadFile = File(...)):
 
 if __name__ == "__main__":
     print("🚀 API de Inspeção a arrancar na porta 8000...")
-    print("   Features: YOLO Inspection + Orientation Detection (Option 2)")
+    print("   Features: Tray crop + YOLO Inspection + Orientation Detection")
     uvicorn.run(app, host="0.0.0.0", port=8000)

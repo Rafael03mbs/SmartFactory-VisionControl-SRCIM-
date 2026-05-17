@@ -1,1 +1,1 @@
-( ap-description  :name "192.168.32.1:1099/JADE" :ap-services (set ( ap-service  :name fipa.mts.mtp.http.std :type fipa.mts.mtp.http.std :addresses (sequence http://Desktop-g14:7778/acc))))
+( ap-description  :name "192.168.32.1:1099/JADE" :ap-services (set ( ap-service  :name fipa.mts.mtp.http.std :type fipa.mts.mtp.http.std :addresses (sequence http://host.docker.internal:7778/acc))))

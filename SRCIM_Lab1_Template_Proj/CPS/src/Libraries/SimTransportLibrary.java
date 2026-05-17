@@ -46,8 +46,14 @@ public class SimTransportLibrary implements ITransport {
 
     @Override
     public boolean executeMove(String origin, String destination, String productID) {
+        // Clear any stale signals from a previous move BEFORE sending the new command.
+        // Without this, CoppeliaSim may see residual signals and the AGV blocks indefinitely.
+        sim.simxClearStringSignal(clientID, "Move", sim.simx_opmode_blocking);
+        sim.simxClearIntegerSignal(clientID, "Move", sim.simx_opmode_blocking);
+
         sim.simxSetStringSignal(clientID, "Move", new CharWA(productID + "#" + origin + "#" + destination),
                 sim.simx_opmode_blocking);
+
         IntW opRes = new IntW(-1);
         long startTime = System.currentTimeMillis();
         while ((opRes.getValue() != 1) && (System.currentTimeMillis() - startTime < timeout)) {
@@ -58,11 +64,11 @@ public class SimTransportLibrary implements ITransport {
                 Logger.getLogger(SimResourceLibrary.class.getName()).log(Level.SEVERE, null, ex);
             }
         }
+        // Symmetric cleanup: clear both signals so the next move starts clean
         sim.simxClearIntegerSignal(clientID, "Move", sim.simx_opmode_blocking);
-        if (opRes.getValue() == 1) {
-            return true;
-        }
-        return false;
+        sim.simxClearStringSignal(clientID, "Move", sim.simx_opmode_blocking);
+
+        return (opRes.getValue() == 1);
     }
 
 }

@@ -13,6 +13,7 @@ public class TestResourceLibrary implements IResource {
 
     private Agent myAgent;
     private final Random random = new Random();
+    private static int forcedQualityResultIndex = 0;
 
     @Override
     public void init(Agent myAgent) {
@@ -75,6 +76,12 @@ public class TestResourceLibrary implements IResource {
                     return "done";
                 case Utilities.Constants.SK_QUALITY_CHECK: {
                     Thread.sleep(2000);
+                    String forcedResult = getForcedQualityResult();
+                    if (forcedResult != null) {
+                        System.out.println("[TEST QC] " + myAgent.getLocalName() + " forced -> " + forcedResult);
+                        return forcedResult;
+                    }
+
                     // Lab 2: Simulate random OK/NOK for testing (30% chance of defect)
                     if (random.nextInt(100) < 30) {
                         String region = random.nextBoolean() ? "TOP" : "BOTTOM";
@@ -89,6 +96,20 @@ public class TestResourceLibrary implements IResource {
         } catch (InterruptedException ex) {
             Logger.getLogger(TestLibrary.class.getName()).log(Level.SEVERE, null, ex);
         }
+        return null;
+    }
+
+    private String getForcedQualityResult() {
+        String resultsProperty = System.getProperty("srcim.test.qc.results");
+        if (resultsProperty != null && !resultsProperty.trim().isEmpty()) {
+            String[] results = resultsProperty.split(",");
+            synchronized (TestResourceLibrary.class) {
+                int index = Math.min(forcedQualityResultIndex, results.length - 1);
+                forcedQualityResultIndex++;
+                return results[index].trim();
+            }
+        }
+
         return null;
     }
 }
