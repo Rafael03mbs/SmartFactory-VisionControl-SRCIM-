@@ -259,7 +259,7 @@ def extract_defects(boxes) -> list:
 
 
 @app.post("/inspect")
-async def inspect_product(file: UploadFile = File(...)):
+async def inspect_product(file: UploadFile = File(...), visual: bool = Query(False)):
     try:
         # Ler a imagem que o Java (Simulador) nos enviou
         image_bytes = await file.read()
@@ -277,41 +277,116 @@ async def inspect_product(file: UploadFile = File(...)):
         # Analisar o que o YOLO viu na imagem
         boxes = results[0].boxes
         
-        # Se não encontrou nenhum defeito → produto OK
-        if len(boxes) == 0:
-            return {
-                "status": "OK", 
-                "message": "Produto em perfeitas condições",
-                "defect_region": "NONE",
-                "orientation": orientation,
-                "source_image_size": [image.width, image.height],
-                "model_image_size": [tray_image.width, tray_image.height],
-                "tray": tray_info,
-            }
-        
         # Extrair informação dos defeitos detetados
         defects_info = extract_defects(boxes)
         img_w = float(tray_image.width)
         img_h = float(tray_image.height)
         
-        # Classify defect region relative to default orientation
-        defect_region = classify_defect_region(defects_info, img_w, img_h, orientation)
+        if len(boxes) == 0:
+            status = "OK"
+            message = "Produto em perfeitas condições"
+            defect_region = "NONE"
+        else:
+            status = "NOK"
+            message = f"Atenção: {len(boxes)} defeito(s) detetado(s)!"
+            defect_region = classify_defect_region(defects_info, img_w, img_h, orientation)
             
-        return {
-            "status": "NOK", 
-            "message": f"Atenção: {len(boxes)} defeito(s) detetado(s)!",
+        res = {
+            "status": status,
+            "message": message,
+            "defect_region": defect_region,
+            "orientation": orientation,
             "source_image_size": [image.width, image.height],
             "model_image_size": [tray_image.width, tray_image.height],
-            "orientation": orientation,
-            "defect_region": defect_region,
             "tray": tray_info,
-            "defects": defects_info
         }
+        
+        if status == "NOK":
+            res["defects"] = defects_info
+            
+        # Adicionar visualização base64 se solicitado
+        if visual:
+            orig_annotated = draw_tray_bbox(image, tray_info["bbox"])
+            cropped_annotated = draw_cropped_annotations(tray_image, defects_info, orientation, defect_region)
+            res["visualization"] = {
+                "original": image_to_base64(orig_annotated),
+                "cropped": image_to_base64(cropped_annotated)
+            }
+            
+        return res
     except Exception as e:
         return {"error": str(e)}
 
 
+@app.post("/inspect-sample")
+async def inspect_sample(filename: str):
+    try:
+        if model is None:
+            return {"error": "YOLO model was not loaded"}
+            
+        # Procurar ficheiro local na pasta images/
+        filepath = os.path.join("images", filename)
+        if not os.path.exists(filepath):
+            return {"error": f"Ficheiro {filename} não encontrado no servidor"}
+            
+        image = Image.open(filepath).convert("RGB")
+        tray_image, tray_info = crop_tray(image)
+        orientation = detect_tray_orientation(tray_image)
+        
+        results = model(tray_image, conf=DETECTION_CONFIDENCE)
+        boxes = results[0].boxes
+        
+        defects_info = extract_defects(boxes)
+        img_w = float(tray_image.width)
+        img_h = float(tray_image.height)
+        
+        if len(boxes) == 0:
+            status = "OK"
+            message = "Produto em perfeitas condições"
+            defect_region = "NONE"
+        else:
+            status = "NOK"
+            message = f"Atenção: {len(boxes)} defeito(s) detetado(s)!"
+            defect_region = classify_defect_region(defects_info, img_w, img_h, orientation)
+            
+        orig_annotated = draw_tray_bbox(image, tray_info["bbox"])
+        cropped_annotated = draw_cropped_annotations(tray_image, defects_info, orientation, defect_region)
+        
+        res = {
+            "status": status,
+            "message": message,
+            "defect_region": defect_region,
+            "orientation": orientation,
+            "source_image_size": [image.width, image.height],
+            "model_image_size": [tray_image.width, tray_image.height],
+            "tray": tray_info,
+            "visualization": {
+                "original": image_to_base64(orig_annotated),
+                "cropped": image_to_base64(cropped_annotated)
+            }
+        }
+        
+        if status == "NOK":
+            res["defects"] = defects_info
+            
+        return res
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/", response_class=HTMLResponse)
+@app.get("/dashboard", response_class=HTMLResponse)
+async def serve_dashboard():
+    try:
+        with open("dashboard.html", "r", encoding="utf-8") as f:
+            html_content = f.read()
+        return HTMLResponse(content=html_content)
+    except Exception as e:
+        return HTMLResponse(content=f"<h1>Erro ao carregar o dashboard: {str(e)}</h1>", status_code=500)
+
+
 if __name__ == "__main__":
-    print("🚀 API de Inspeção a arrancar na porta 8000...")
-    print("   Features: Tray crop + YOLO Inspection + Orientation Detection")
+    print("🚀 API de Inspeção com Dashboard a arrancar na porta 8000...")
+    print("   Aceda a: http://localhost:8000/ no seu browser para testar visualmente!")
+    print("   Features: Tray crop + YOLO Inspection + Orientation + Visual Dashboard")
     uvicorn.run(app, host="0.0.0.0", port=8000)
